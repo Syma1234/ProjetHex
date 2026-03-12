@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+
+        var socket = io();
+        var nomJoueur = "";
+        var partiePleine = false;
+        var monTour = false;
+        var partieFinie = false;
+        var nbrTour = 0;
+        let voisinBleu = [];
+        let voisinRouge = [];
+        let etatDamier = [];
+
+        function test() {
+            console.log("Appel du serveur");
+            socket.emit('test', "Ô serveur je t'envoie ce message");
+        }
+
+        function EntrezDansLaPartie() {
+            nomJoueur = nom.value;
+            if (nomJoueur)
+                socket.emit('entree', { "nom": nomJoueur });
+        }
+
+        function QuittezPartie() {
+            if (nomJoueur)
+                socket.emit('sortie', { "nom": nomJoueur });
+        }
+
+        function EnvoyerMessage(input) {
+            let message = input.value;
+            if (nomJoueur && message) {
+                socket.emit('envoie', { "nom": nomJoueur, "message": message });
+                input.value = "";
+            }
+        }
+
+        function DesacButton(IdButton) {
+            var bArrivee = document.getElementById('arrivee');
+            var bSortie = document.getElementById('fuite');
+            var reset = document.getElementById('reset')
+            var messagerie = document.getElementById('send');
+            if (IdButton == 'arrivee') {
+                bArrivee.disabled = true;
+                bSortie.disabled = false;
+                messagerie.disabled = false;
+                reset.disabled = false;
+            } else {
+                bArrivee.disabled = false;
+                bSortie.disabled = true;
+                messagerie.disabled = true;
+                reset.disabled = true;
+            }
+        }
+
+        function clickHexa() {
+            if (!partiePleine || !monTour)
+                return 0;
+            let numHexagone = parseInt(d3.select(this).attr('id').substring(1));
+            console.log(numHexagone);
+            if (d3.select(this).attr("fill") == "white")
+                socket.emit("hexagone", { "numero": numHexagone, "nom": nomJoueur });
+            else {
+                return 0;
+            }
+        }
+
+        function ResetPartie() {
+            socket.emit('ResetPartie');
+        }
+
+
+
+        socket.on('actuDamier', (data) => {
+            nbrTour = data.tour;
+        });
+
+
+        socket.on('pleine', () => {
+            partiePleine = true;
+            var bArrivee = document.getElementById('arrivee');
+            bArrivee.disabled = true;
+        });
+
+        socket.on('colorierHexagone', (data) => {
+            if (partieFinie == true)
+                return 0;
+            d3.select("#h" + data.numero).attr("fill", data.couleur);
+            if (data.couleur == "blue") {
+                aUnVoisinBleue(data.numero, data.couleur);
+                aGagner(data.couleur);
+                if (partieFinie == true) {
+                    socket.emit("victoire", { "CouleurGagnante": data.couleur, "Trajet": voisinBleu });
+                    colorVictoire(voisinBleu);
+                };
+            }
+            if (data.couleur == "red") {
+                aUnVoisinRouge(data.numero, data.couleur);
+                aGagner(data.couleur);
+                if (partieFinie == true) {
+                    socket.emit("victoire", { "CouleurGagnante": data.couleur, "Trajet": voisinRouge });
+                    colorVictoire(voisinRouge);
+                };
+            }
+            etatDamier.push([data.numero, data.couleur]);
+            socket.emit('stockDamier', etatDamier);
+            voisinBleu = [];
+            voisinRouge = [];
+        });
+
+        socket.on('messageRecu', (msg) => {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.value += msg + '\n';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        socket.on('Victoire', (msg) => {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.value += msg + '\n';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+
+        socket.on('nouveauJoueur', (nom) => {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.value += nom + " a rejoint la partie\n";
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        socket.on('sortieJoueur', (nom) => {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.value += nom + " a quitté la partie\n";
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            partiePleine = false;
+            var bArrivee = document.getElementById('arrivee');
+            bArrivee.disabled = false;
+        });
+
+        socket.on('majDamier', (data) => {
+            etatDamier = data;
+            console.log("id" + etatDamier[0][0] + " couleur " + etatDamier[0][1]);
+            for (var i = 0; i < etatDamier.length; i++) {
+                d3.select("#h" + (etatDamier[i][0])).attr("fill", (etatDamier[i][1]));
+            }
+        });
+
+        socket.on('ArrivePersonne', (data) => {
+            var nombreTour = document.getElementById('TourActuelle');
+            if (partieFinie == true) {
+                nombreTour.textContent = "Partie terminée ";
+                return 0;
+            }
+            nombreTour.textContent = "Tour " + nbrTour + " : " + data;
+        });
+
+        socket.on('tourJoueur', (nom) => {
+            const nombreTour = document.getElementById('TourActuelle');
+            if (partieFinie == true) {
+                nombreTour.textContent = "Partie terminée ";
+                return 0;
+            }
+            nbrTour++;
+            socket.emit('EnvoieJoueurTour', (nom));
+            nombreTour.textContent = "Tour " + nbrTour + " : " + nom;
+            if (nom == nomJoueur)
+                monTour = true;
+            else
+                monTour = false;
+        })
+
+        window.addEventListener('load', () => { test(); });
+
+        function colorVictoire(victoire) {
+            for (var z = 0; z < victoire.length; z++) {
+                d3.select("#h" + victoire[z]).attr("fill", "green");
+            }
+        }
+
+        const rayon = 35;
+        const nbLignes = 11;
+        const nbColonnes = 11;
+        const largeur = (rayon * 2) * nbColonnes;
+        const hauteur = (rayon * 2) * nbLignes;
+        const distance = rayon - (Math.sin(1 * Math.PI / 3) * rayon);
+
+        function creeHexagone(rayon) {
+            var points = new Array();
+            for (let i = 0; i < 6; ++i) {
+                let angle = i * Math.PI / 3;
+                let x = Math.sin(angle) * rayon;
+                let y = -Math.cos(angle) * rayon;
+                points.push([Math.round(x * 100) / 100, Math.round(y * 100) / 100]);
+            }
+            return points;
+        }
+
+        function genererDamier() {
+            let decalage = 11.5;
+            d3.select("#tablier")
+                .append("svg")
+                .attr("width", largeur * 1.3)
+                .attr("height", hauteur);
+            var hexagone = creeHexagone(rayon);
+            for (var l = 0; l < nbLignes; l++) {
+                for (var c = 0; c < nbColonnes; c++) {
+                    let d = "";
+                    let x, y;
+                    for (let h in hexagone) {
+                        x = hexagone[h][0] + (rayon - distance) * (decalage + 2 * c);
+                        y = distance * 2 + hexagone[h][1] + (rayon - distance * 2) * (1 + 2 * l);
+                        if (h == 0) {
+                            d += "M" + x + "," + y;
+                        } else {
+                            d += "L" + x + "," + y;
+                        }
+                    }
+                    d += "Z";
+                    let couleur = "white";
+                    if (l == 0 || l == nbLignes - 1) {
+                        couleur = "red";
+                    } else if (c == 0 || c == nbColonnes - 1) {
+                        couleur = "blue";
+                    }
+                    if (l == 0 && c == 0 || l == 0 && c == 10 || l == 10 && c == 0 || l == 10 && c == 10) {
+                        couleur = "black";
+                    }
+                    let hexaclick = d3.select("svg")
+                        .append("path")
+                        .attr("d", d)
+                        .attr("stroke", "black")
+                        .attr("fill", couleur)
+                        .attr("id", "h" + (l * nbColonnes + c));
+                    if (couleur == "white") {
+                        hexaclick.on("click", clickHexa);
+                    }
+                }
+                decalage--;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            genererDamier();
+        });
+
+        socket.on('ResetDamier', () => {
+            nomJoueur = "";
+            partiePleine = false;
+            monTour = false;
+            partieFinie = false;
+            nbrTour = 0;
+            voisinBleu = [];
+            voisinRouge = [];
+            etatDamier = [];
+            DesacButton('reset');
+            var nombreTour = document.getElementById('TourActuelle');
+            nombreTour.textContent = "En attente de joueurs..."
+            var tablier = document.getElementById('tablier');
+            tablier.innerHTML = "";
+            genererDamier();
+            var msg = "Système : Partie Réinistialisée";
+            messagesDiv = document.getElementById('messages');
+            messagesDiv.value += msg + '\n';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        })
+
+        function aUnVoisinBleue(id, couleur, visited = []) {
+            var bGauche = ["11", "22", "33", "44", "55", "66", "77", "88", "99"];
+            var bDroit = ['21', '32', '43', '54', '65', '76', '87', '98', '109'];
+            if (visited.includes(id))
+                return;
+            visited.push(id);
+            if (bGauche.includes(String(id))) {
+                voisinBleu.push(id);
+                return;
+            }
+            if (bDroit.includes(String(id))) {
+                voisinBleu.push(id);
+                return;
+            }
+            var idDroit = id + 1;
+            var idGauche = id - 1;
+            var idHautDroit = id - 11;
+            var idBasGauche = id + 11;
+            var idHautGauche = id - 12;
+            var idBasDroit = id + 12;
+            var couleurDroit = d3.select("#h" + idDroit).attr("fill");
+            var couleurGauche = d3.select("#h" + idGauche).attr("fill");
+            var couleurBas = d3.select("#h" + idBasGauche).attr("fill");
+            var couleurHaut = d3.select("#h" + idHautDroit).attr("fill");
+            var couleudHautGauche = d3.select("#h" + idHautGauche).attr("fill");
+            var couleurBasDroit = d3.select("#h" + idBasDroit).attr("fill");
+            if (couleur == "blue") {
+                if (!voisinBleu.includes(id))
+                    voisinBleu.push(id);
+                if (couleurDroit == couleur)
+                    aUnVoisinBleue(idDroit, couleur, visited);
+                if (couleurGauche == couleur)
+                    aUnVoisinBleue(idGauche, couleur, visited);
+                if (couleurBas == couleur)
+                    aUnVoisinBleue(idBasGauche, couleur, visited);
+                if (couleurHaut == couleur)
+                    aUnVoisinBleue(idHautDroit, couleur, visited);
+                if (couleudHautGauche == couleur)
+                    aUnVoisinBleue(idHautGauche, couleur, visited);
+                if (couleurBasDroit == couleur)
+                    aUnVoisinBleue(idBasDroit, couleur, visited);
+            }
+            console.log("Voisin bleu: " + voisinBleu);
+        }
+
+        function aUnVoisinRouge(id, couleur, visited = []) {
+            var bBas = ['111', '112', '113', '114', '115', '116', '117', '118', '119'];
+            var bHaut = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+            if (visited.includes(id))
+                return;
+            visited.push(id);
+            if (bHaut.includes(String(id))) {
+                voisinRouge.push(id);
+                return;
+            }
+            if (bBas.includes(String(id))) {
+                voisinRouge.push(id);
+                return;
+            }
+            var idDroit = id + 1;
+            var idGauche = id - 1;
+            var idHautDroit = id - 11;
+            var idBasGauche = id + 11;
+            var idHautGauche = id - 12;
+            var idBasDroit = id + 12;
+            var couleurDroit = d3.select("#h" + idDroit).attr("fill");
+            var couleurGauche = d3.select("#h" + idGauche).attr("fill");
+            var couleurBas = d3.select("#h" + idBasGauche).attr("fill");
+            var couleurHaut = d3.select("#h" + idHautDroit).attr("fill");
+            var couleudHautGauche = d3.select("#h" + idHautGauche).attr("fill");
+            var couleurBasDroit = d3.select("#h" + idBasDroit).attr("fill");
+            if (couleur == "red") {
+                if (!voisinRouge.includes(id))
+                    voisinRouge.push(id);
+                if (couleurDroit == couleur)
+                    aUnVoisinRouge(idDroit, couleur, visited);
+                if (couleurGauche == couleur)
+                    aUnVoisinRouge(idGauche, couleur, visited);
+                if (couleurBas == couleur)
+                    aUnVoisinRouge(idBasGauche, couleur, visited);
+                if (couleurHaut == couleur)
+                    aUnVoisinRouge(idHautDroit, couleur, visited);
+                if (couleudHautGauche == couleur)
+                    aUnVoisinRouge(idHautGauche, couleur, visited);
+                if (couleurBasDroit == couleur)
+                    aUnVoisinRouge(idBasDroit, couleur, visited);
+            }
+            console.log("Voisin Rouge " + voisinRouge);
+        }
+
+        function aGagner(color) {
+            var bGauche = ['11', '22', '33', '44', '55', '66', '77', '88', '99'];
+            var bDroit = ['21', '32', '43', '54', '65', '76', '87', '98', '109'];
+            var bBas = ['111', '112', '113', '114', '115', '116', '117', '118', '119'];
+            var bHaut = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+            var verif = 0;
+
+            if (color == "red") {
+                for (var i = 0; i < voisinRouge.length; i++) {
+                    if (bHaut.includes(String(voisinRouge[i]))) {
+                        verif++;
+                        break;
+                    }
+                }
+                for (var j = 0; j < voisinRouge.length; j++) {
+                    if (bBas.includes(String(voisinRouge[j]))) {
+                        verif++;
+                        break;
+                    }
+                }
+                if (verif == 2)
+                    partieFinie = true;
+            }
+            if (color == "blue") {
+                for (var f = 0; f < voisinBleu.length; f++) {
+                    if (bGauche.includes(String(voisinBleu[f]))) {
+                        verif++;
+                        break;
+                    }
+                }
+                for (var g = 0; g < voisinBleu.length; g++) {
+                    if (bDroit.includes(String(voisinBleu[g]))) {
+                        verif++;
+                        break;
+                    }
+                }
+                if (verif == 2)
+                    partieFinie = true;
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <input id="nom" placeholder="Tapez votre pseudo" type="text" required />
+            <button id="arrivee" onclick="EntrezDansLaPartie(); DesacButton('arrivee')">
+                Entrez dans la partie
+            </button>
+            <button id="reset" onclick="ResetPartie()" disabled>
+                Réinistialisation Partie
+            </button>
+        </div>
+
+        <h2 id="TourActuelle">En attente de joueurs...</h2>
+
+        <div class="board" id="tablier"></div>
+
+
+        <div class="chat-container">
+            <h3>Messagerie</h3>
+            <textarea id="messages" rows="10" readonly></textarea>
+            <textarea id="messageInput" rows="2" placeholder="Tapez votre message ici"></textarea>
+            <button id="send" disabled onclick="EnvoyerMessage(messageInput)">Envoyer</button>
+        </div>
+
+        <button id="fuite" disabled onclick="QuittezPartie(); DesacButton('fuite')">Quittez la partie</button>
+    </div>
+</body>
+
+</html>
